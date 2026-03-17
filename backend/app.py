@@ -37,7 +37,7 @@ JOB_STATUS = {}
 def health():
     return {"status": "ok"}
 
-@app.post("/api/uploadfile/")
+@app.post("/uploadfile/")
 async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...), chunk_size: int = 1):
 
     if  not file.filename.lower().endswith(".pdf"):

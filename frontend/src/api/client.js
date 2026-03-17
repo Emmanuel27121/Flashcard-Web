@@ -1,7 +1,7 @@
 export const API_BASE = "http://localhost:8000";
 
 // your upload endpoint (from your backend)
-export const UPLOAD_URL = `${API_BASE}/api/uploadfile/`;
+export const UPLOAD_URL = `${API_BASE}/uploadfile/`;
 
 export async function uploadPdf(file, chunkSize = 1) {
   const form = new FormData();
