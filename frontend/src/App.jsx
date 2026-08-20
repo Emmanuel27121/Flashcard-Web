@@ -3,6 +3,8 @@ import "./App.css";
 import UploadPanel from "./components/UploadPanel.jsx";
 import StudyPanel from "./components/StudyPanel.jsx";
 import { uploadPdf,getCards,getStatus,downloadCsvUrl } from "./api/client.js";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/analytics/react";
 
 export default function App() {
 	const [selectedFile, setSelectedFile] = useState(null);
@@ -112,6 +114,8 @@ export default function App() {
 					onDownload={handleDownload}
 				/>
 			</main>
+			<Analytics />
+			<SpeedInsights />
 		</div>
 	);
 }
