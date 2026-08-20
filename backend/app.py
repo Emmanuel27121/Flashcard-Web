@@ -1,26 +1,36 @@
 import json
 from core.pdf_extractor import extract_text
 from core.text_cleaner import clean_text, chunk_text
-from core.flashcard_generator import generate_flashcard, save_flashcard
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from core.ai_flashcard_generator import generate_flashcards_from_chunks, save_flashcards
+import os
 
-from fastapi import FastAPI, UploadFile, File, HTTPException,BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException,BackgroundTasks,Request
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from pathlib import Path
 import uuid
 
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI()
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+allowed_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://localhost:5175",
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-    ],
-    allow_credentials=True,
+    allow_origins=[origin.strip() for origin in allowed_origins if origin.strip()],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -28,7 +38,8 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 JOB_DIR = BASE_DIR / "jobs"
-
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_CHUNKS_PER_JOB = 20
 UPLOAD_DIR.mkdir(exist_ok=True)
 JOB_DIR.mkdir(exist_ok=True)
 JOB_STATUS = {}
@@ -38,7 +49,15 @@ def health():
     return {"status": "ok"}
 
 @app.post("/uploadfile/")
-async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...), chunk_size: int = 1):
+@limiter.limit("5/hour")
+async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), chunk_size: int = 1):
+    contents = await file.read()
+
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="PDF is too large. Maximum upload size is 10 MB.",
+        )
 
     if  not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Invalid file type.")
@@ -46,7 +65,6 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
     job_id = uuid.uuid4().hex
 
     save_path = UPLOAD_DIR / f"{job_id}.pdf"
-    contents = await file.read()
     save_path.write_bytes(contents)
 
     (JOB_DIR / job_id).mkdir(exist_ok=True)    
@@ -83,50 +101,6 @@ def get_status(job_id: str):
         return{"job_id": job_id, "status":"pending", "message":"Job is still being processed."}
 
    
-
-@app.post("/api/process/{job_id}")
-def process_job(job_id: str, chunk_size: int = 1):
-    job_folder = JOB_DIR/job_id
-    pdf_path = UPLOAD_DIR / f"{job_id}.pdf"
-
-    if not job_folder.exists():
-        raise HTTPException(status_code=404, detail="Job ID not found.")
-    if not pdf_path.exists():
-        raise HTTPException(status_code=404, detail="Uploaded file not found.")
-    
-    raw = extract_text(str(pdf_path))
-    if not raw.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="No extractable text found in the PDF."
-        )
-    
-    cleaned = clean_text(raw)
-    chunks = chunk_text(cleaned, chunk_size=chunk_size)
-    cards = generate_flashcard(chunks)
-    if not cards:
-        raise HTTPException(
-            status_code=400,
-            detail="No flashcards could be generated from the text."
-        )
-    
-    cards_payload = [
-        {"id": idx + 1, "question": q, "answer": a}
-        for idx, (q, a) in enumerate(cards)
-    ]
-    json_path = job_folder / "cards.json"
-    json_path.write_text(json.dumps(cards_payload, indent=2), encoding="utf-8")
-
-    csv_path = job_folder / "cards.csv"
-    save_flashcard(cards, str(csv_path))
-
-    return {
-        "job_id":job_id,
-        "status":"done",
-        "cards": len(cards),
-        "chunk_size": chunk_size
-    }
-
 @app.get("/api/cards/{job_id}")
 def get_cards(job_id: str):
     job_folder = JOB_DIR / job_id
@@ -184,9 +158,10 @@ def run_pdf_job(job_id: str, chunk_size: int):
         JOB_STATUS[job_id] = {"status": "processing", "message": "Cleaning and chunking text."}
         cleaned = clean_text(raw)
         chunks = chunk_text(cleaned, chunk_size=chunk_size) 
+        chunks = chunks[:MAX_CHUNKS_PER_JOB]
 
         JOB_STATUS[job_id] = {"status": "processing", "message": "Generating flashcards."}
-        cards = generate_flashcard(chunks)
+        cards = generate_flashcards_from_chunks(chunks)
         if not cards:
             JOB_STATUS[job_id] = {
                 "status": "error",
@@ -196,15 +171,15 @@ def run_pdf_job(job_id: str, chunk_size: int):
         
         JOB_STATUS[job_id] = {"status": "processing", "message": "Saving flashcards."}
         cards_payload = [
-            {"id": idx + 1, "question": q, "answer": a}
-            for idx, (q, a) in enumerate(cards)
+            {"id": idx + 1, "question": card["question"], "answer": card["answer"]}
+            for idx, card in enumerate(cards)
         ]
 
         json_path = job_folder / "cards.json"
         json_path.write_text(json.dumps(cards_payload, indent=2), encoding="utf-8")
 
         csv_path = job_folder / "cards.csv"
-        save_flashcard(cards, str(csv_path))
+        save_flashcards(cards, str(csv_path))
 
         JOB_STATUS[job_id] = {
             "status": "done",

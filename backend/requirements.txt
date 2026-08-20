@@ -2,3 +2,6 @@ fastapi
 uvicorn
 pdfplumber
 python-multipart
+openai
+python-dotenv
+slowapi

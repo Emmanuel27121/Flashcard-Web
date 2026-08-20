@@ -1,13 +1,13 @@
-export const API_BASE = "http://localhost:8000";
+export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 // your upload endpoint (from your backend)
 export const UPLOAD_URL = `${API_BASE}/uploadfile/`;
 
-export async function uploadPdf(file, chunkSize = 1) {
+export async function uploadPdf(file) {
   const form = new FormData();
   form.append("file", file);
 
-  const res = await fetch(`${UPLOAD_URL}?chunk_size=${chunkSize}`, {
+  const res = await fetch(UPLOAD_URL, {
     method: "POST",
     body: form,
   });

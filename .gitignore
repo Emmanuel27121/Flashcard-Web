@@ -1,14 +1,15 @@
-backend/venv/
+backend/.venv/
 backend/__pycache__/
 *.pyc
+backend/venv/
 
 backend/uploads/
 backend/jobs/
-
+backend/.env
 
 frontend/node_modules/
 frontend/dist/
 
-.ds_Store
+.DS_Store
 Thumbs.db
 .env

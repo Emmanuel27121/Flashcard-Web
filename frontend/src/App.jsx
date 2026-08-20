@@ -11,7 +11,6 @@ export default function App() {
 	const [cards, setCards] = useState([]);
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [showAnswer, setShowAnswer] = useState(false);
-	const [chunkSize, setChunkSize] = useState(2);
 	const currentCard = cards[currentIndex];
 	const [lastGeneratedJobId, setLastJobId] = useState(null);
 	
@@ -31,7 +30,7 @@ export default function App() {
 			setStatus("working");
 			setStatusMessage("Generating flashcards");
 
-			const { job_id } = await uploadPdf(selectedFile, 1);
+			const { job_id } = await uploadPdf(selectedFile);
 
 			while(true){
 				const statusRes = await getStatus(job_id);
@@ -45,7 +44,7 @@ export default function App() {
 				await new Promise((r) => setTimeout(r, 1000));
 			}
 
-			setStatus("Fetching flashcards...");
+			setStatusMessage("Fetching flashcards...");
 			const fetchedCards = await getCards(job_id);
 			setCards(fetchedCards);
 			setStatus("done");
@@ -93,8 +92,6 @@ export default function App() {
 
 			<main className="flex">
 				<UploadPanel
-					chunkSize={chunkSize}
-					setChunkSize={setChunkSize}
 					selectedFile={selectedFile}
 					onChooseFile={handleChooseFile}
 					onGenerate={handleGenerate}
